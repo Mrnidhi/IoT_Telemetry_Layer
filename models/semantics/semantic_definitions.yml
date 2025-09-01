@@ -1,0 +1,180 @@
+version: 2
+
+semantic_models:
+  - name: trips
+    description: "Semantic model for trip telemetry with explicit column metadata for LLM context optimization"
+    
+    defaults:
+      agg_time_dimension: trip_start_time
+    
+    entities:
+      - name: trip_id
+        type: primary
+        expr: trip_id
+      
+      - name: device
+        type: foreign
+        expr: device_id
+      
+      - name: driver
+        type: foreign
+        expr: driver_id
+    
+    measures:
+      - name: total_trips
+        description: "Total count of trips"
+        agg: count
+        expr: trip_id
+      
+      - name: total_distance_km
+        description: "Sum of all trip distances in kilometers"
+        agg: sum
+        expr: distance_km
+      
+      - name: avg_trip_duration_minutes
+        description: "Average trip duration in minutes"
+        agg: avg
+        expr: duration_seconds / 60
+      
+      - name: avg_speed_kmh
+        description: "Average speed across all trips"
+        agg: avg
+        expr: avg_speed_kmh
+      
+      - name: total_harsh_events
+        description: "Total count of harsh driving events (brakes + accelerations)"
+        agg: sum
+        expr: harsh_brakes_count + harsh_accelerations_count
+      
+      - name: harsh_braking_ratio
+        description: "Ratio of harsh braking events per trip"
+        agg: avg
+        expr: harsh_brakes_count
+    
+    dimensions:
+      - name: trip_start_date
+        description: "Date of trip start (UTC)"
+        type: time
+        expr: DATE(trip_start_time)
+        time_granularities: [day, week, month, quarter, year]
+      
+      - name: trip_start_hour
+        description: "Hour of day when trip started (UTC)"
+        type: time
+        expr: DATE_TRUNC('HOUR', trip_start_time)
+      
+      - name: trip_duration_bucket
+        description: "Trip duration categorized into buckets"
+        type: categorical
+        expr: |
+          CASE 
+            WHEN duration_seconds < 900 THEN 'Under 15 min'
+            WHEN duration_seconds < 1800 THEN '15-30 min'
+            WHEN duration_seconds < 3600 THEN '30-60 min'
+            ELSE 'Over 1 hour'
+          END
+      
+      - name: speeding_incident
+        description: "Whether trip exceeded speed threshold of 120 kmh"
+        type: categorical
+        expr: CASE WHEN max_speed_kmh > 120 THEN 'YES' ELSE 'NO' END
+      
+      - name: harsh_driving_risk
+        description: "Risk category based on harsh events"
+        type: categorical
+        expr: |
+          CASE 
+            WHEN harsh_brakes_count + harsh_accelerations_count > 10 THEN 'HIGH'
+            WHEN harsh_brakes_count + harsh_accelerations_count > 5 THEN 'MEDIUM'
+            ELSE 'LOW'
+          END
+      
+      - name: device_model_category
+        description: "Device hardware model classification for LLM context"
+        type: categorical
+        expr: COALESCE(d.device_model, 'UNKNOWN')
+    
+    primary_key: trip_id
+
+
+  - name: devices
+    description: "Semantic model for device health and status"
+    
+    entities:
+      - name: device_id
+        type: primary
+        expr: device_id
+      
+      - name: fleet
+        type: foreign
+        expr: fleet_id
+    
+    measures:
+      - name: device_count
+        description: "Count of active devices"
+        agg: count_distinct
+        expr: device_id
+      
+      - name: avg_battery_percent
+        description: "Average battery charge level"
+        agg: avg
+        expr: battery_percent
+      
+      - name: avg_signal_strength
+        description: "Average signal strength in dBm"
+        agg: avg
+        expr: signal_strength_dbm
+      
+      - name: avg_gps_accuracy_meters
+        description: "Average GPS accuracy in meters"
+        agg: avg
+        expr: gps_accuracy_meters
+      
+      - name: online_device_count
+        description: "Count of devices currently online"
+        agg: count_distinct
+        expr: CASE WHEN is_online THEN device_id ELSE NULL END
+    
+    dimensions:
+      - name: last_heartbeat_date
+        description: "Date of last device heartbeat"
+        type: time
+        expr: DATE(heartbeat_timestamp)
+      
+      - name: device_health_status
+        description: "Overall device health classification for monitoring"
+        type: categorical
+        expr: |
+          CASE 
+            WHEN battery_percent < 10 THEN 'CRITICAL'
+            WHEN battery_percent < 25 THEN 'WARNING'
+            WHEN is_online = FALSE THEN 'OFFLINE'
+            WHEN device_temperature_c > 60 THEN 'OVERHEATING'
+            ELSE 'HEALTHY'
+          END
+      
+      - name: device_model_type
+        description: "Device model for LLM query filtering"
+        type: categorical
+        expr: d.device_model
+    
+    primary_key: device_id
+
+
+metrics:
+  - name: driver_risk_score
+    description: "Composite driver risk metric based on harsh events and speeding"
+    type: derived
+    expr: |
+      {{ ref('stg_trip_events') }} 
+      GROUP BY driver_id, trip_start_date
+      HAVING SUM(harsh_brakes_count + harsh_accelerations_count) > 0
+    
+  - name: fleet_safety_index
+    description: "Fleet-level safety index (0-100)"
+    type: gauge
+    expr: |
+      100 - (
+        SUM(harsh_brakes_count + harsh_accelerations_count) / 
+        NULLIF(COUNT(trip_id), 0) * 10
+      )

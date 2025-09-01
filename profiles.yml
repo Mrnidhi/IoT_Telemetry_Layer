@@ -1,0 +1,49 @@
+outputs:
+  dev:
+    type: snowflake
+    account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+    user: "{{ env_var('SNOWFLAKE_USER') }}"
+    password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+    role: transformer
+    database: "{{ env_var('SNOWFLAKE_DATABASE') }}_DEV"
+    schema: "{{ env_var('SNOWFLAKE_SCHEMA') }}"
+    warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+    threads: 4
+    client_session_keep_alive: false
+
+  prod:
+    type: snowflake
+    account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+    user: "{{ env_var('SNOWFLAKE_USER') }}"
+    password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+    role: transformer
+    database: "{{ env_var('SNOWFLAKE_DATABASE') }}"
+    schema: "{{ env_var('SNOWFLAKE_SCHEMA') }}"
+    warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE') }}"
+    threads: 8
+    client_session_keep_alive: false
+
+iot_semantic:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: transformer
+      database: iot_telemetry_dev
+      schema: semantic
+      warehouse: compute_wh
+      threads: 4
+
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
+      role: transformer
+      database: iot_telemetry
+      schema: semantic
+      warehouse: compute_wh
+      threads: 8
